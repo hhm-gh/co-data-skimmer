@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+__marimo__/
+screenshots/
+*.md
+*.toml
+*.lock
+collect.py
+app_marimo.py
+datasette.yml
