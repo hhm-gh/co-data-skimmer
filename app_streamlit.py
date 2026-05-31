@@ -76,7 +76,7 @@ _display = filtered[_display_cols].copy()
 if "cached" in _display.columns:
     _display["cached"] = _display["cached"].map({True: "✓", False: ""})
 
-st.dataframe(_display, use_container_width=True, hide_index=True)
+st.dataframe(_display, width="stretch", hide_index=True)
 
 # ── dataset picker + preview ──────────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ if selected_label:
             f"`{selected_id}` &nbsp;·&nbsp; "
             f"{len(df):,} rows × {len(df.columns)} columns _(local cache, first 1,000 rows)_"
         )
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
     else:
         st.info(
             f"**{selected_name}** is not cached locally.\n\n"
