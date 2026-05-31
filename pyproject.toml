@@ -1,0 +1,17 @@
+[project]
+name = "co-data"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "datasources",
+    "datasette>=0.65",
+    "duckdb>=1.5.3",
+    "marimo>=0.23.8",
+    "pandas>=3.0.3",
+    "pyarrow>=24.0.0",
+    "requests>=2.34.2",
+    "streamlit>=1.35",
+]
+
+[tool.uv.sources]
+datasources = { path = "../data-sources", editable = true }

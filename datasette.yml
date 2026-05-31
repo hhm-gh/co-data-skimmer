@@ -1,0 +1,10 @@
+title: Colorado Information Marketplace
+description: Datasets from data.colorado.gov cached locally via collect.py
+databases:
+  co_data:
+    source: Colorado Information Marketplace
+    source_url: https://data.colorado.gov
+    tables:
+      _index:
+        label_column: name
+        description: Index of all locally cached datasets
