@@ -57,6 +57,9 @@ uv run collect.py --domain data.cdc.gov --search "covid"
 
 - **Cache-on-read in Marimo**: first fetch from API saves to DuckDB automatically; subsequent
   loads are instant from local cache. The `✓` column in the catalog table marks cached datasets.
+- **`cached` column staleness**: the `cached` column in catalog tables (both Marimo and Streamlit)
+  reflects which datasets were in DuckDB at the time `collect.py --search` last ran. If you fetch
+  new datasets after searching, re-run `collect.py --search` to refresh the column.
 - **`--rows 50000` default** in `collect.py --fetch`: prevents accidentally pulling multi-million-
   row datasets. Pass `--rows 0` to fetch all rows.
 - **DuckDB table naming**: `ds_<dataset_id_with_dashes_replaced_by_underscores>`. The `_index`

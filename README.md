@@ -10,6 +10,20 @@ Browse and preview datasets from the [Colorado Information Marketplace](https://
 | **Streamlit** | `uv run streamlit run app_streamlit.py` | Presentation — local or GCP Cloud Run |
 | **Datasette** | `uv run datasette serve data/co_data.sqlite --metadata datasette.yml` | Ad-hoc querying, filtering, CSV export |
 
+## Screenshots
+
+### Streamlit — catalog with sidebar filters
+![Streamlit catalog](screenshots/streamlit-catalog.png)
+
+### Streamlit — dataset preview
+![Streamlit dataset preview](screenshots/streamlit-preview.png)
+
+### Datasette — home
+![Datasette home](screenshots/datasette-home.png)
+
+### Datasette — browsing a dataset
+![Datasette dataset](screenshots/datasette-dataset.png)
+
 ## Quickstart
 
 ```bash
@@ -24,12 +38,19 @@ uv run collect.py --search "colorado"
 uv run collect.py --fetch 4e3w-qire   # Unemployment Estimates
 uv run collect.py --fetch k4uv-yvnk   # Current Notaries
 
+# Re-run search to refresh the cached (✓) markers in the catalog
+uv run collect.py --search "colorado"
+
 # Export to SQLite for Datasette
 uv run collect.py --export
 
 # Launch any frontend
 uv run marimo edit app_marimo.py
 ```
+
+> **Note:** The `cached` column (✓ markers) in the catalog table reflects which datasets were
+> in DuckDB at the time `--search` last ran. If you fetch new datasets, re-run
+> `collect.py --search` to refresh it.
 
 ## Data collection
 
