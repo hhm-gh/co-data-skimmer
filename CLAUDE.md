@@ -53,6 +53,29 @@ uv run collect.py --domain data.cdc.gov --search "covid"
 | Streamlit  | Local only         | DuckDB cache only           | Yes            |
 | Datasette  | —                  | SQLite export               | Yes            |
 
+## GCP deployment
+
+`deploy.sh` matches the pattern from `~/code/rental/deploy.sh`: builds via `gcloud builds submit`
+(in GCP, not locally) and deploys to Cloud Run via Artifact Registry.
+
+```bash
+./deploy.sh          # build + deploy (run after collect.py to publish fresh data)
+./deploy.sh stop     # set 0% traffic — prevents invocations without deleting
+./deploy.sh start    # restore 100% traffic
+./deploy.sh delete   # remove the service entirely
+```
+
+**Scale-to-zero is the primary start/stop mechanism.** Cloud Run automatically scales to zero
+when idle (no cost, no requests served). Manual stop/start is only needed to explicitly prevent
+cold-start invocations.
+
+Reads project from `gcloud config get-value project`. Artifact Registry repo is created
+automatically on first deploy. Requires these APIs enabled:
+`run.googleapis.com`, `artifactregistry.googleapis.com`, `cloudbuild.googleapis.com`.
+
+Dockerfile uses `requirements.txt` (not uv) to keep the image simple. Data is bundled at build
+time — re-run `collect.py` then `./deploy.sh` to publish updated datasets.
+
 ## Key design decisions
 
 - **Cache-on-read in Marimo**: first fetch from API saves to DuckDB automatically; subsequent
