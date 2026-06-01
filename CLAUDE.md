@@ -13,8 +13,9 @@ app_streamlit.py  Streamlit app (local + GCP Cloud Run deployment)
 datasette.yml     Datasette config (reads data/co_data.sqlite)
 Dockerfile        GCP Cloud Run image for Streamlit
 data/             .gitignored local cache
-  catalog.parquet       Catalog search results
-  co_data.duckdb        Datasets as tables (ds_<id>) + _index table
+  catalog.parquet       Full catalog (all datasets for the domain)
+  catalog.md            Full catalog as a markdown table (sorted by category → name)
+  co_data.duckdb        catalog table + datasets as ds_<id> tables + _index table
   co_data.sqlite        SQLite mirror for Datasette (via collect.py --export)
 ```
 
@@ -53,7 +54,7 @@ uv run collect.py --domain data.cdc.gov --catalog
 | Frontend   | Catalog source          | Dataset source              | GCP-deployable |
 |------------|-------------------------|-----------------------------|----------------|
 | Marimo     | DuckDB catalog table    | DuckDB cache, API fallback  | No (edit mode) |
-| Streamlit  | DuckDB catalog table    | DuckDB cache only           | Yes            |
+| Streamlit  | DuckDB catalog table    | DuckDB cache, API fallback  | Yes            |
 | Datasette  | —                       | SQLite export               | Yes            |
 
 ## GCP deployment
@@ -81,39 +82,37 @@ time — re-run `collect.py` then `./deploy.sh` to publish updated datasets.
 
 ## Key design decisions
 
-- **Cache-on-read in Marimo**: first fetch from API saves to DuckDB automatically; subsequent
-  loads are instant from local cache. The `✓` column in the catalog table marks cached datasets.
+- **Cache-on-read in Marimo and Streamlit**: clicking an uncached dataset fetches 1,000 rows from
+  the API, saves to DuckDB, and caches for instant subsequent loads. The `✓` column marks cached.
+- **Total row count**: the Streamlit app fetches `?$select=count(*)` alongside the sample rows
+  and stores it in `_index.total_rows`. The discovery API does not return row counts — this is the
+  only way to get them without downloading the full dataset.
 - **`cached` column staleness**: the `cached` column reflects which datasets were in DuckDB at the
-  time `collect.py --catalog` last ran. Re-run `--catalog` after new `--fetch` runs to refresh it.
+  time `collect.py --catalog` last ran. Re-run `--catalog` after new fetches to refresh it.
 - **`--rows 50000` default** in `collect.py --fetch`: prevents accidentally pulling multi-million-
   row datasets. Pass `--rows 0` to fetch all rows.
 - **DuckDB table naming**: `ds_<dataset_id_with_dashes_replaced_by_underscores>`. The `_index`
-  table in DuckDB maps dataset IDs to table names, row counts, and fetch timestamps.
+  table tracks dataset_id, name, domain, table_name, row_count (fetched), total_rows (API count),
+  col_count, and fetched_at.
 - **SQLite export**: `collect.py --export` uses pandas `.to_sql()` to mirror DuckDB → SQLite.
   Re-run after each new `--fetch` to keep Datasette in sync.
 - **Datasette** is purely read-only over the SQLite export; it does not talk to the API.
 - **Streamlit GCP**: data is bundled into the Docker image at build time. Re-build after
   running `collect.py` to publish updated data.
 
-## Pending experiments
+## Known limitations / future refactoring
 
-### Streamlit catalog column filtering
-
-`st.dataframe` supports sorting but not per-column filtering. Two options evaluated:
-
-- **`streamlit-aggrid`** — Excel-style filter inputs in the table header (text, dropdown, number
-  range). Requires adding `streamlit-aggrid` to `requirements.txt` and the Docker image. Best UX.
-- **More sidebar controls** — additional multiselect/range sliders in the existing sidebar.
-  No new dependency; stays fully native Streamlit. Less discoverable.
-
-`streamlit-aggrid` is the preferred direction. Not yet implemented — committed clean checkpoint
-first (`202c0c6`) before experimenting.
+- **Streamlit sidebar**: text search, category, and cached-only filters are redundant with the
+  AgGrid column filters already in the table. Sidebar is kept for now but is a candidate for
+  removal in a future cleanup.
+- **Marimo live catalog search**: removed (was redundant with the built-in AgGrid table search).
+  Catalog is now always loaded from `store.get_catalog()` (DuckDB catalog table).
 
 ## Dependencies
 
 - `datasources` package from `../data-sources` (local editable install via uv.sources)
 - Python ≥ 3.14 (matches data-sources)
-- marimo ≥ 0.23.8, streamlit ≥ 1.35, datasette ≥ 0.65, duckdb ≥ 1.5.3
+- marimo ≥ 0.23.8, streamlit ≥ 1.35, streamlit-aggrid ≥ 1.2, datasette ≥ 0.65, duckdb ≥ 1.5.3
 
 ## Related projects
 
