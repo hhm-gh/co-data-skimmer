@@ -33,15 +33,19 @@ def _open(read_only: bool = True) -> duckdb.DuckDBPyConnection:
 def _ensure_index(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""
         CREATE TABLE IF NOT EXISTS _index (
-            dataset_id TEXT PRIMARY KEY,
-            name       TEXT,
-            domain     TEXT,
-            table_name TEXT,
-            row_count  BIGINT,
-            col_count  INTEGER,
-            fetched_at TIMESTAMP DEFAULT now()
+            dataset_id  TEXT PRIMARY KEY,
+            name        TEXT,
+            domain      TEXT,
+            table_name  TEXT,
+            row_count   BIGINT,
+            total_rows  BIGINT,
+            col_count   INTEGER,
+            fetched_at  TIMESTAMP DEFAULT now()
         )
     """)
+    existing = con.execute("PRAGMA table_info(_index)").fetchdf()["name"].tolist()
+    if "total_rows" not in existing:
+        con.execute("ALTER TABLE _index ADD COLUMN total_rows BIGINT")
 
 
 # ── catalog ───────────────────────────────────────────────────────────────────
@@ -148,7 +152,13 @@ def get_dataset(dataset_id: str, limit: int | None = 1000) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def save_dataset(dataset_id: str, name: str, domain: str, df: pd.DataFrame) -> None:
+def save_dataset(
+    dataset_id: str,
+    name: str,
+    domain: str,
+    df: pd.DataFrame,
+    total_rows: int | None = None,
+) -> None:
     """Persist a dataset to DuckDB and update the index."""
     DATA_DIR.mkdir(exist_ok=True)
     tbl = _tbl(dataset_id)
@@ -158,16 +168,17 @@ def save_dataset(dataset_id: str, name: str, domain: str, df: pd.DataFrame) -> N
     con.execute(f'CREATE TABLE "{tbl}" AS SELECT * FROM df')
     count = con.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
     con.execute("""
-        INSERT INTO _index (dataset_id, name, domain, table_name, row_count, col_count, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, now())
+        INSERT INTO _index (dataset_id, name, domain, table_name, row_count, total_rows, col_count, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, now())
         ON CONFLICT (dataset_id) DO UPDATE SET
             name       = excluded.name,
             domain     = excluded.domain,
             table_name = excluded.table_name,
             row_count  = excluded.row_count,
+            total_rows = excluded.total_rows,
             col_count  = excluded.col_count,
             fetched_at = excluded.fetched_at
-    """, [dataset_id, name, domain, tbl, count, len(df.columns)])
+    """, [dataset_id, name, domain, tbl, count, total_rows, len(df.columns)])
     con.close()
 
 

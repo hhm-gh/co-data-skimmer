@@ -14,6 +14,8 @@ Deploy to GCP Cloud Run:
 
 import streamlit as st
 import pandas as pd
+import requests
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, ColumnsAutoSizeMode
 import store
 
 st.set_page_config(
@@ -41,6 +43,7 @@ catalog = store.get_catalog()
 
 with st.sidebar:
     st.header("Filter catalog")
+    st.caption("_The AgGrid table below has per-column filters — sidebar filters are redundant and may be removed in a future refactor._")
     query = st.text_input("Search by name / description", placeholder="e.g. traffic, health")
     categories = ["All"] + sorted(catalog["category"].dropna().unique().tolist())
     category = st.selectbox("Category", categories)
@@ -68,7 +71,7 @@ if cached_only and "cached" in filtered.columns:
 
 st.subheader(f"Catalog — {len(filtered)} datasets")
 
-_display_cols = ["name", "category", "dataset_id", "description"]
+_display_cols = ["name", "category", "rows", "dataset_id", "description"]
 if "cached" in filtered.columns:
     _display_cols = ["cached"] + _display_cols
 
@@ -76,35 +79,95 @@ _display = filtered[_display_cols].copy()
 if "cached" in _display.columns:
     _display["cached"] = _display["cached"].map({True: "✓", False: ""})
 
-st.dataframe(_display, width="stretch", hide_index=True)
+# Populate rows from _index total_rows (only known for fetched datasets)
+_idx = store.get_index()
+if not _idx.empty and "total_rows" in _idx.columns:
+    _total_map = _idx.set_index("dataset_id")["total_rows"]
+else:
+    _total_map = pd.Series(dtype="Int64")
+_display["rows"] = _display["dataset_id"].map(_total_map).apply(
+    lambda v: f"{int(v):,}" if pd.notna(v) else ""
+)
 
-# ── dataset picker + preview ──────────────────────────────────────────────────
+_gb = GridOptionsBuilder.from_dataframe(_display)
+_gb.configure_default_column(filter=True, sortable=True, resizable=True)
+_gb.configure_column("name", minWidth=200)
+_gb.configure_column("description", minWidth=300)
+_gb.configure_column("cached", maxWidth=80)
+_gb.configure_column("rows", maxWidth=100)
+_gb.configure_column("dataset_id", maxWidth=130)
+_gb.configure_selection("single", use_checkbox=False)
+_gb.configure_grid_options(domLayout="normal")
+
+_grid = AgGrid(
+    _display,
+    gridOptions=_gb.build(),
+    update_mode=GridUpdateMode.SELECTION_CHANGED,
+    columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
+    height=400,
+    allow_unsafe_jscode=False,
+)
+
+# ── dataset preview ───────────────────────────────────────────────────────────
 
 st.subheader("Preview a dataset")
 
-_options = filtered[["name", "dataset_id"]].copy()
-_options["label"] = _options["name"] + "  (" + _options["dataset_id"] + ")"
+_sel_rows = _grid.get("selected_rows")
+if _sel_rows is not None and len(_sel_rows) > 0:
+    selected_id = _sel_rows.iloc[0]["dataset_id"]
+    selected_name = _sel_rows.iloc[0]["name"]
 
-selected_label = st.selectbox(
-    "Select dataset",
-    options=_options["label"].tolist(),
-    index=None,
-    placeholder="Choose a dataset...",
-)
-
-if selected_label:
-    selected_id = _options.loc[_options["label"] == selected_label, "dataset_id"].iloc[0]
-    selected_name = _options.loc[_options["label"] == selected_label, "name"].iloc[0]
+    try:
+        domain = filtered.loc[filtered["dataset_id"] == selected_id, "domain"].iloc[0]
+    except (KeyError, IndexError):
+        domain = "data.colorado.gov"
 
     if store.dataset_cached(selected_id):
         df = store.get_dataset(selected_id, limit=1000)
+        source = "local cache"
+        # Read stored total from _index if available
+        _idx = store.get_index()
+        _match = _idx[_idx["dataset_id"] == selected_id]
+        total_rows = int(_match.iloc[0]["total_rows"]) if not _match.empty and pd.notna(_match.iloc[0].get("total_rows")) else None
+    else:
+        with st.spinner(f"Fetching {selected_name} from API..."):
+            try:
+                # Fetch sample rows and total count in parallel-ish (sequential is fine)
+                resp = requests.get(
+                    f"https://{domain}/resource/{selected_id}.json",
+                    params={"$limit": 1000},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                df = pd.DataFrame(resp.json())
+
+                count_resp = requests.get(
+                    f"https://{domain}/resource/{selected_id}.json",
+                    params={"$select": "count(*)", "$limit": 1},
+                    timeout=15,
+                )
+                try:
+                    count_data = count_resp.json()
+                    total_rows = int(next(iter(count_data[0].values()))) if count_resp.ok and count_data else None
+                except Exception:
+                    total_rows = None
+
+                if not df.empty:
+                    store.save_dataset(selected_id, selected_name, domain, df, total_rows=total_rows)
+                    st.rerun()
+                source = "live API (now cached)"
+            except Exception as e:
+                st.error(f"Failed to fetch `{selected_id}`: {e}")
+                df = pd.DataFrame()
+                source = ""
+                total_rows = None
+
+    if not df.empty:
+        _total_note = f" of {total_rows:,} total" if total_rows else ""
         st.caption(
             f"`{selected_id}` &nbsp;·&nbsp; "
-            f"{len(df):,} rows × {len(df.columns)} columns _(local cache, first 1,000 rows)_"
+            f"showing {len(df):,} rows{_total_note} × {len(df.columns)} columns _(source: {source})_"
         )
         st.dataframe(df, width="stretch", hide_index=True)
-    else:
-        st.info(
-            f"**{selected_name}** is not cached locally.\n\n"
-            f"Fetch it with:\n```\nuv run collect.py --fetch {selected_id}\n```"
-        )
+else:
+    st.caption("_Click a row in the catalog table above to preview its data._")
