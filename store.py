@@ -15,6 +15,7 @@ import pandas as pd
 
 DATA_DIR = Path(__file__).parent / "data"
 CATALOG_PATH = DATA_DIR / "catalog.parquet"
+CATALOG_MD_PATH = DATA_DIR / "catalog.md"
 DB_PATH = DATA_DIR / "co_data.duckdb"
 SQLITE_PATH = DATA_DIR / "co_data.sqlite"
 
@@ -45,18 +46,54 @@ def _ensure_index(con: duckdb.DuckDBPyConnection) -> None:
 
 # ── catalog ───────────────────────────────────────────────────────────────────
 
+def _catalog_in_db() -> bool:
+    if not DB_PATH.exists():
+        return False
+    try:
+        con = _open()
+        tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
+        con.close()
+        return "catalog" in tables
+    except Exception:
+        return False
+
+
 def catalog_available() -> bool:
-    return CATALOG_PATH.exists()
+    return _catalog_in_db() or CATALOG_PATH.exists()
+
+
+def _read_catalog_raw() -> pd.DataFrame:
+    """Read catalog from DuckDB catalog table if available, else parquet."""
+    if _catalog_in_db():
+        try:
+            con = _open()
+            df = con.execute("SELECT * FROM catalog").df()
+            con.close()
+            return df
+        except Exception:
+            pass
+    if CATALOG_PATH.exists():
+        return pd.read_parquet(CATALOG_PATH)
+    return pd.DataFrame()
 
 
 def get_catalog() -> pd.DataFrame:
     """Return cached catalog with a `cached` boolean column added."""
-    if not CATALOG_PATH.exists():
-        return pd.DataFrame()
-    df = pd.read_parquet(CATALOG_PATH)
+    df = _read_catalog_raw()
+    if df.empty:
+        return df
     cached = set(list_cached_ids())
     df["cached"] = df["dataset_id"].isin(cached)
     return df
+
+
+def save_catalog(df: pd.DataFrame) -> None:
+    """Persist the full catalog DataFrame to the DuckDB 'catalog' table."""
+    DATA_DIR.mkdir(exist_ok=True)
+    con = _open(read_only=False)
+    con.execute("DROP TABLE IF EXISTS catalog")
+    con.execute("CREATE TABLE catalog AS SELECT * FROM df")
+    con.close()
 
 
 # ── datasets ──────────────────────────────────────────────────────────────────

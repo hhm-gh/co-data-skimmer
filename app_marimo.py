@@ -9,11 +9,10 @@ def _():
     import marimo as mo
     import pandas as pd
     import store
-    from datasources.coloradogov import search_catalog
     from datasources._http import make_session
 
     session = make_session()
-    return mo, pd, search_catalog, session, store
+    return mo, pd, session, store
 
 
 @app.cell
@@ -21,56 +20,24 @@ def _(mo):
     mo.md("""
     # Colorado Information Marketplace
     Browse datasets from **[data.colorado.gov](https://data.colorado.gov)**.
-    Catalog searches hit the live API; datasets load from local cache when available,
-    otherwise fetched from the API and cached for future runs.
+    Datasets load from local cache when available, otherwise fetched live and cached.
 
-    > Pre-populate cache: `uv run collect.py --search "your query"`
+    > Refresh catalog: `uv run collect.py --catalog`
     > Pre-fetch a dataset: `uv run collect.py --fetch <dataset_id>`
     """)
     return
 
 
 @app.cell
-def _(mo):
-    search = mo.ui.text(
-        placeholder="e.g. traffic, health, education, budget, water...",
-        value="colorado",
-        label="Search datasets",
-    )
-    return (search,)
-
-
-@app.cell
-def _(search):
-    search
-    return
-
-
-@app.cell
-def _(mo, pd, search, search_catalog, session, store):
-    _q = search.value.strip() or "colorado"
-
-    # Use local catalog for the default query if available, else hit the API
-    _local = store.get_catalog()
-    if not _local.empty and _q.lower() in ("colorado", ""):
-        _raw = _local
-    else:
-        try:
-            _raw = search_catalog(_q, session, limit=50)
-            if not _raw.empty:
-                _cached = set(store.list_cached_ids())
-                _raw["cached"] = _raw["dataset_id"].isin(_cached)
-        except Exception as _e:
-            _raw = pd.DataFrame()
-
-    catalog = _raw
+def _(store):
+    catalog = store.get_catalog()
     return (catalog,)
 
 
 @app.cell
 def _(catalog, mo):
     if catalog.empty:
-        catalog_table = mo.md("_No datasets found. Try a different search term._")
+        catalog_table = mo.md("_No catalog data found. Run `uv run collect.py --catalog` to populate._")
     else:
         import pandas as _pd
         _cols = ["name", "category", "rows", "updated", "dataset_id", "description"]
