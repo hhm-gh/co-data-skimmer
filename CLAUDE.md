@@ -26,8 +26,8 @@ Colorado Information Marketplace — `data.colorado.gov` — Socrata SODA API, n
 ## Workflow
 
 ```bash
-# 1. Populate catalog
-uv run collect.py --search "colorado"
+# 1. Download full catalog (parquet + DuckDB catalog table + catalog.md)
+uv run collect.py --catalog          # explicit; also the default with no flags
 
 # 2. Fetch datasets into local cache (default 50k rows; --rows 0 = all)
 uv run collect.py --fetch <dataset_id>
@@ -41,17 +41,20 @@ uv run marimo edit app_marimo.py --port 2718
 uv run streamlit run app_streamlit.py
 uv run datasette serve data/co_data.sqlite --metadata datasette.yml
 
+# Ad-hoc catalog search (display only — does not write files)
+uv run collect.py --search "traffic crashes"
+
 # Other Socrata portals
-uv run collect.py --domain data.cdc.gov --search "covid"
+uv run collect.py --domain data.cdc.gov --catalog
 ```
 
 ## Frontend behaviour
 
-| Frontend   | Catalog source     | Dataset source              | GCP-deployable |
-|------------|--------------------|-----------------------------|----------------|
-| Marimo     | Live API + local   | DuckDB cache, API fallback  | No (edit mode) |
-| Streamlit  | Local only         | DuckDB cache only           | Yes            |
-| Datasette  | —                  | SQLite export               | Yes            |
+| Frontend   | Catalog source          | Dataset source              | GCP-deployable |
+|------------|-------------------------|-----------------------------|----------------|
+| Marimo     | DuckDB catalog table    | DuckDB cache, API fallback  | No (edit mode) |
+| Streamlit  | DuckDB catalog table    | DuckDB cache only           | Yes            |
+| Datasette  | —                       | SQLite export               | Yes            |
 
 ## GCP deployment
 
@@ -80,9 +83,8 @@ time — re-run `collect.py` then `./deploy.sh` to publish updated datasets.
 
 - **Cache-on-read in Marimo**: first fetch from API saves to DuckDB automatically; subsequent
   loads are instant from local cache. The `✓` column in the catalog table marks cached datasets.
-- **`cached` column staleness**: the `cached` column in catalog tables (both Marimo and Streamlit)
-  reflects which datasets were in DuckDB at the time `collect.py --search` last ran. If you fetch
-  new datasets after searching, re-run `collect.py --search` to refresh the column.
+- **`cached` column staleness**: the `cached` column reflects which datasets were in DuckDB at the
+  time `collect.py --catalog` last ran. Re-run `--catalog` after new `--fetch` runs to refresh it.
 - **`--rows 50000` default** in `collect.py --fetch`: prevents accidentally pulling multi-million-
   row datasets. Pass `--rows 0` to fetch all rows.
 - **DuckDB table naming**: `ds_<dataset_id_with_dashes_replaced_by_underscores>`. The `_index`
@@ -92,6 +94,20 @@ time — re-run `collect.py` then `./deploy.sh` to publish updated datasets.
 - **Datasette** is purely read-only over the SQLite export; it does not talk to the API.
 - **Streamlit GCP**: data is bundled into the Docker image at build time. Re-build after
   running `collect.py` to publish updated data.
+
+## Pending experiments
+
+### Streamlit catalog column filtering
+
+`st.dataframe` supports sorting but not per-column filtering. Two options evaluated:
+
+- **`streamlit-aggrid`** — Excel-style filter inputs in the table header (text, dropdown, number
+  range). Requires adding `streamlit-aggrid` to `requirements.txt` and the Docker image. Best UX.
+- **More sidebar controls** — additional multiselect/range sliders in the existing sidebar.
+  No new dependency; stays fully native Streamlit. Less discoverable.
+
+`streamlit-aggrid` is the preferred direction. Not yet implemented — committed clean checkpoint
+first (`202c0c6`) before experimenting.
 
 ## Dependencies
 
